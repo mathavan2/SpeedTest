@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Network Speed Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+  --bg:#020617;
+  --card:#0f172a;
+  --green:#22c55e;
+  --aqua:#22d3ee;
+  --muted:#94a3b8;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:#e5e7eb;
+  font-family:system-ui,Segoe UI,sans-serif;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
+}
+
+.container{
+  width:440px;
+  background:var(--card);
+  border-radius:20px;
+  padding:24px;
+  box-shadow:0 25px 70px rgba(0,0,0,.65);
+}
+
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+select{
+  background:#020617;
+  color:#e5e7eb;
+  border:1px solid #334155;
+  border-radius:8px;
+  padding:6px 10px;
+}
+
+.speed{
+  font-size:3rem;
+  text-align:center;
+  margin:12px 0 4px;
+}
+
+.label{
+  text-align:center;
+  color:var(--muted);
+  font-size:14px;
+}
+
+canvas{
+  width:48%;
+  height:120px;
+  padding-top: 20px;
+  background:#020617;
+  border-radius:12px;
+  margin:10px 0;
+}
+ /* canvas {
+  width: 50%;
+  height: 120px;
+  padding-top: 20px;
+  background: linear-gradient(
+    180deg,
+    rgba(15,23,42,0.9),
+    rgba(2,6,23,1)
+  );
+  border-radius: 14px;
+  margin: 10px 0;
+} */
+
+
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  margin-top:10px;
+}
+
+.card{
+  background:#020617;
+  border-radius:14px;
+  padding:14px;
+  text-align:center;
+  font-size:14px;
+}
+
+.card span{
+  display:block;
+  font-size:1.25rem;
+  margin-top:6px;
+}
+
+button{
+  width:100%;
+  margin-top:20px;
+  padding:16px;
+  border-radius:16px;
+  border:none;
+  font-size:16px;
+  font-weight:700;
+  background:var(--green);
+  color:#020617;
+  cursor:pointer;
+}
+
+button:disabled{
+  background:#475569;
+}
+.flex{
+  display:flex;
+  gap:10px;
+  justify-content: space-between;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>Speed Test</h1>
+    <select id="unitToggle">
+      <option value="Mbps">Mbps</option>
+      <option value="MBps">MB/s</option>
+    </select>
+  </div>
+
+  <!-- MAIN SPEED -->
+  <div class="speed" id="mainSpeed">0.00</div>
+  <div class="label" id="mainLabel">Ready</div>
+
+  <!-- DOWNLOAD GRAPH -->
+  <div class="flex">
+    <canvas id="downGraph"></canvas>
+
+  <!-- UPLOAD GRAPH -->
+  <canvas id="upGraph"></canvas>
+  </div>
+
+  <div class="grid">
+    <div class="card">Ping <span id="ping">--</span></div>
+    <div class="card">Jitter <span id="jitter">--</span></div>
+    <div class="card">Upload <span id="upSmall">--</span></div>
+    <div class="card">Avg Down <span id="avgDown">--</span></div>
+  </div>
+
+  <button id="btn">Start Test</button>
+</div>
+
+<script>
+/* ================= CONFIG ================= */
+const BASE="http://192.168.1.45:8000";
+const WS_URL="ws://192.168.1.45:8000/ws";
+
+const DOWNLOAD_STREAMS=6;
+const DOWNLOAD_TIME=20000;
+const UPLOAD_TIME=15000;
+const UPLOAD_CHUNK=1_000_000;
+/* ========================================= */
+
+/* ================= STATE ================= */
+const state={
+  phase:"idle",          // idle | download | upload | done
+  downSamples:[],
+  upSamples:[],
+  currentDown:0,
+  currentUp:0
+};
+/* ========================================= */
+
+/* ================= UNIT ================= */
+function unit(){return unitToggle.value}
+function convert(mbps){return unit()==="MBps"?mbps/8:mbps}
+function unitText(){return unit()==="MBps"?"MB/s":"Mbps"}
+/* ========================================= */
+
+/* ================= GRAPH ================= */
+/* function drawLine(canvas,samples,color){
+  const ctx=canvas.getContext("2d");
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(samples.length<2)return;
+
+  const vals=samples.map(convert);
+  const max=Math.max(...vals,10);
+
+  ctx.strokeStyle=color;
+  ctx.lineWidth=2;
+  ctx.beginPath();
+
+  vals.forEach((v,i)=>{
+    const x=i/(vals.length-1)*canvas.width;
+    const y=canvas.height-(v/max)*canvas.height;
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  });
+  ctx.stroke();
+} */
+function drawLine(canvas, samples, color) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  if (samples.length < 2) return;
+
+  // clip for rounded corners
+  /* ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(14, 0);
+  ctx.arcTo(w, 0, w, h, 14);
+  ctx.arcTo(w, h, 0, h, 14);
+  ctx.arcTo(0, h, 0, 0, 14);
+  ctx.arcTo(0, 0, w, 0, 14);
+  ctx.closePath();
+  ctx.clip(); */
+
+  const values = samples.map(convert);
+  const max = Math.max(...values, 10);
+
+  // build points
+  const points = values.map((v, i) => ({
+    x: (i / (values.length - 1)) * w,
+    y: h - (v / max) * h
+  }));
+
+  /* ===== GRADIENT FILL ===== */
+  const gradient = ctx.createLinearGradient(0, 0, 0, h);
+  gradient.addColorStop(0, color + "55");
+  gradient.addColorStop(1, color + "00");
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, h);
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(points[points.length - 1].x, h);
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  /* ===== GLOW LINE ===== */
+  ctx.beginPath();
+  points.forEach((p, i) =>
+    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)
+  );
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ========================================= */
+
+/* ================= RENDER ================= */
+function render(){
+  let value=0;
+  let label="";
+  let color="#22c55e";
+
+  if(state.phase==="download"){
+    value=state.currentDown;
+    label="Download ("+unitText()+")";
+    color="#22c55e";
+  }else if(state.phase==="upload"){
+    value=state.currentUp;
+    label="Upload ("+unitText()+")";
+    color="#22d3ee";
+  }else if(state.phase==="done"){
+    value=state.currentDown;
+    label="Final Download ("+unitText()+")";
+  }else{
+    label="Ready";
+  }
+
+  mainSpeed.textContent=convert(value).toFixed(2);
+  mainSpeed.style.color=color;
+  mainLabel.textContent=label;
+
+  upSmall.textContent=state.currentUp
+    ? convert(state.currentUp).toFixed(2)+" "+unitText()
+    : "--";
+
+  avgDown.textContent=state.downSamples.length
+    ? convert(state.downSamples.reduce((a,b)=>a+b,0)/state.downSamples.length).toFixed(2)+" "+unitText()
+    : "--";
+
+  drawLine(downGraph,state.downSamples,"#22c55e");
+  drawLine(upGraph,state.upSamples,"#22d3ee");
+}
+/* ========================================= */
+
+/* ================= DOWNLOAD ================= */
+let downBytes=0;
+
+async function downloadStream(){
+  const r=await fetch(BASE+"/download");
+  const reader=r.body.getReader();
+  while(true){
+    const {done,value}=await reader.read();
+    if(done)break;
+    downBytes+=value.length;
+  }
+}
+
+function startDownload(){
+  state.phase="download";
+  state.downSamples=[];
+  downBytes=0;
+  const start=performance.now();
+
+  for(let i=0;i<DOWNLOAD_STREAMS;i++) downloadStream();
+
+  const t=setInterval(()=>{
+    const sec=(performance.now()-start)/1000;
+    const mbps=(downBytes*8)/sec/1e6;
+
+    state.currentDown=mbps;
+    state.downSamples.push(mbps);
+    render();
+  },400);
+
+  setTimeout(()=>clearInterval(t),DOWNLOAD_TIME);
+}
+/* ========================================= */
+
+/* ================= UPLOAD ================= */
+async function uploadTest() {
+  state.phase = "upload";
+  state.upSamples = [];
+  state.currentUp = 0;
+  render();
+
+  let uploadedBytes = 0;
+  const start = performance.now();
+  let lastSampleTime = start;
+
+  // fire-and-forget upload loop
+  const uploadLoop = async () => {
+    while (performance.now() - start < UPLOAD_TIME) {
+      const data = new Uint8Array(UPLOAD_CHUNK);
+      const form = new FormData();
+      form.append("file", new Blob([data]));
+
+      await fetch(BASE + "/upload", {
+        method: "POST",
+        body: form
+      });
+
+      uploadedBytes += data.length;
+    }
+  };
+
+  // start upload in background
+  uploadLoop();
+
+  // sample speed at fixed interval (LIKE DOWNLOAD)
+  const sampler = setInterval(() => {
+    const now = performance.now();
+    const elapsed = (now - start) / 1000;
+
+    if (elapsed <= 0) return;
+
+    const mbps = (uploadedBytes * 8) / elapsed / 1e6;
+
+    state.currentUp = mbps;
+    state.upSamples.push(mbps);
+    render();
+
+    lastSampleTime = now;
+  }, 400);
+
+  // stop sampler after upload duration
+  await new Promise(r => setTimeout(r, UPLOAD_TIME));
+  clearInterval(sampler);
+}
+
+/* ========================================= */
+
+/* ================= WEBSOCKET ================= */
+function startWebSocket(){
+  try{
+    const ws=new WebSocket(WS_URL);
+    ws.onmessage=e=>{
+      if(e.data==="ping")ws.send("pong");
+      else{
+        const d=JSON.parse(e.data);
+        ping.textContent=d.ping+" ms";
+        jitter.textContent=d.jitter+" ms";
+      }
+    };
+  }catch{
+    ping.textContent="N/A";
+    jitter.textContent="N/A";
+  }
+}
+/* ========================================= */
+function clearCanvas(canvas) {
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+
+/* ================= MAIN ================= */
+async function startTest() {
+  btn.disabled = true;
+
+  // ✅ FULL RESET (IMPORTANT)
+  state.phase = "download";
+  state.currentDown = 0;
+  state.currentUp = 0;
+  state.downSamples = [];
+  state.upSamples = [];
+
+  // ✅ CLEAR BOTH GRAPHS
+  clearCanvas(downGraph);
+  clearCanvas(upGraph);
+
+  render();
+
+  try {
+    startWebSocket();
+    startDownload();
+    await new Promise(r => setTimeout(r, DOWNLOAD_TIME));
+    await uploadTest();
+    state.phase = "done";
+    render();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+
+btn.onclick=startTest;
+unitToggle.onchange=render;
+</script>
+
+</body>
+</html>
