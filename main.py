@@ -108,3 +108,13 @@ async def websocket_endpoint(ws: WebSocket):
 
     except Exception as e:
         print("WebSocket error:", e)
+
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root():
+    return {
+        "status": "ok",
+        "service": "SpeedTest Backend",
+        "uptime": "alive"
+    }
+
+
