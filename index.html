@@ -163,292 +163,244 @@ button:disabled{
 
 <script>
 /* ================= CONFIG ================= */
-const BASE="https://speedtest-s8wn.onrender.com";
-const WS_URL="wss://speedtest-s8wn.onrender.com/ws";
+const BASE = "https://speedtest-s8wn.onrender.com";
+const WS_URL = "wss://speedtest-s8wn.onrender.com/ws";
 
-const DOWNLOAD_STREAMS=6;
-const DOWNLOAD_TIME=20000;
-const UPLOAD_TIME=15000;
-const UPLOAD_CHUNK=1_000_000;
+const DOWNLOAD_STREAMS = 6;
+const DOWNLOAD_TIME = 20000;
+const UPLOAD_TIME = 15000;
+const UPLOAD_CHUNK = 1_000_000;
 /* ========================================= */
 
 /* ================= STATE ================= */
-const state={
-  phase:"idle",          // idle | download | upload | done
-  downSamples:[],
-  upSamples:[],
-  currentDown:0,
-  currentUp:0
+const state = {
+  phase: "idle",        // idle | download | upload | done
+  downSamples: [],
+  upSamples: [],
+  currentDown: 0,
+  currentUp: 0
 };
 /* ========================================= */
 
 /* ================= UNIT ================= */
-function unit(){return unitToggle.value}
-function convert(mbps){return unit()==="MBps"?mbps/8:mbps}
-function unitText(){return unit()==="MBps"?"MB/s":"Mbps"}
+function unit(){ return unitToggle.value; }
+function convert(mbps){ return unit()==="MBps" ? mbps/8 : mbps; }
+function unitText(){ return unit()==="MBps" ? "MB/s" : "Mbps"; }
 /* ========================================= */
 
-/* ================= GRAPH ================= */
-/* function drawLine(canvas,samples,color){
-  const ctx=canvas.getContext("2d");
+/* ================= CANVAS HELPERS ================= */
+function clearCanvas(canvas){
+  const ctx = canvas.getContext("2d");
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(samples.length<2)return;
+}
 
-  const vals=samples.map(convert);
-  const max=Math.max(...vals,10);
-
-  ctx.strokeStyle=color;
-  ctx.lineWidth=2;
-  ctx.beginPath();
-
-  vals.forEach((v,i)=>{
-    const x=i/(vals.length-1)*canvas.width;
-    const y=canvas.height-(v/max)*canvas.height;
-    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-  });
-  ctx.stroke();
-} */
-function drawLine(canvas, samples, color) {
+function drawLine(canvas, samples, color){
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
 
-  ctx.clearRect(0, 0, w, h);
-  if (samples.length < 2) return;
+  ctx.clearRect(0,0,w,h);
+  if(samples.length < 2) return;
 
-  // clip for rounded corners
-  /* ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(14, 0);
-  ctx.arcTo(w, 0, w, h, 14);
-  ctx.arcTo(w, h, 0, h, 14);
-  ctx.arcTo(0, h, 0, 0, 14);
-  ctx.arcTo(0, 0, w, 0, 14);
-  ctx.closePath();
-  ctx.clip(); */
+  const vals = samples.map(convert);
+  const max = Math.max(...vals, 10);
 
-  const values = samples.map(convert);
-  const max = Math.max(...values, 10);
-
-  // build points
-  const points = values.map((v, i) => ({
-    x: (i / (values.length - 1)) * w,
-    y: h - (v / max) * h
+  const points = vals.map((v,i)=>({
+    x: (i/(vals.length-1))*w,
+    y: h - (v/max)*h
   }));
 
-  /* ===== GRADIENT FILL ===== */
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, color + "55");
-  gradient.addColorStop(1, color + "00");
+  // gradient fill
+  const grad = ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0, color+"55");
+  grad.addColorStop(1, color+"00");
 
   ctx.beginPath();
   ctx.moveTo(points[0].x, h);
-  points.forEach(p => ctx.lineTo(p.x, p.y));
-  ctx.lineTo(points[points.length - 1].x, h);
+  points.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(points[points.length-1].x, h);
   ctx.closePath();
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = grad;
   ctx.fill();
 
-  /* ===== GLOW LINE ===== */
+  // glow line
   ctx.beginPath();
-  points.forEach((p, i) =>
-    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)
-  );
-
+  points.forEach((p,i)=> i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
   ctx.strokeStyle = color;
   ctx.lineWidth = 2.5;
   ctx.shadowColor = color;
   ctx.shadowBlur = 10;
   ctx.stroke();
-
-  ctx.restore();
 }
-
 /* ========================================= */
 
 /* ================= RENDER ================= */
 function render(){
-  let value=0;
-  let label="";
-  let color="#22c55e";
+  let value = 0;
+  let label = "";
+  let color = "#22c55e";
 
   if(state.phase==="download"){
-    value=state.currentDown;
-    label="Download ("+unitText()+")";
-    color="#22c55e";
-  }else if(state.phase==="upload"){
-    value=state.currentUp;
-    label="Upload ("+unitText()+")";
-    color="#22d3ee";
-  }else if(state.phase==="done"){
-    value=state.currentDown;
-    label="Final Download ("+unitText()+")";
-  }else{
-    label="Ready";
+    value = state.currentDown;
+    label = "Download ("+unitText()+")";
+    color = "#22c55e";
+  } else if(state.phase==="upload"){
+    value = state.currentUp;
+    label = "Upload ("+unitText()+")";
+    color = "#22d3ee";
+  } else if(state.phase==="done"){
+    value = state.currentDown;
+    label = "Final Download ("+unitText()+")";
+  } else {
+    label = "Ready";
   }
 
-  mainSpeed.textContent=convert(value).toFixed(2);
-  mainSpeed.style.color=color;
-  mainLabel.textContent=label;
+  mainSpeed.textContent = convert(value).toFixed(2);
+  mainSpeed.style.color = color;
+  mainLabel.textContent = label;
 
-  upSmall.textContent=state.currentUp
+  upSmall.textContent = state.currentUp
     ? convert(state.currentUp).toFixed(2)+" "+unitText()
     : "--";
 
-  avgDown.textContent=state.downSamples.length
+  avgDown.textContent = state.downSamples.length
     ? convert(state.downSamples.reduce((a,b)=>a+b,0)/state.downSamples.length).toFixed(2)+" "+unitText()
     : "--";
 
-  drawLine(downGraph,state.downSamples,"#22c55e");
-  drawLine(upGraph,state.upSamples,"#22d3ee");
+  drawLine(downGraph, state.downSamples, "#22c55e");
+  drawLine(upGraph, state.upSamples, "#22d3ee");
 }
 /* ========================================= */
 
 /* ================= DOWNLOAD ================= */
-let downBytes=0;
+let downBytes = 0;
 
 async function downloadStream(){
-  const r=await fetch(BASE+"/download");
-  const reader=r.body.getReader();
+  const r = await fetch(BASE+"/download");
+  const reader = r.body.getReader();
   while(true){
-    const {done,value}=await reader.read();
-    if(done)break;
-    downBytes+=value.length;
+    const {done,value} = await reader.read();
+    if(done) break;
+    downBytes += value.length;
   }
 }
 
 function startDownload(){
-  state.phase="download";
-  state.downSamples=[];
-  downBytes=0;
-  const start=performance.now();
+  state.phase = "download";
+  state.downSamples = [];
+  downBytes = 0;
+  const start = performance.now();
 
   for(let i=0;i<DOWNLOAD_STREAMS;i++) downloadStream();
 
-  const t=setInterval(()=>{
-    const sec=(performance.now()-start)/1000;
-    const mbps=(downBytes*8)/sec/1e6;
-
-    state.currentDown=mbps;
+  const t = setInterval(()=>{
+    const sec = (performance.now()-start)/1000;
+    const mbps = (downBytes*8)/sec/1e6;
+    state.currentDown = mbps;
     state.downSamples.push(mbps);
     render();
   },400);
 
-  setTimeout(()=>clearInterval(t),DOWNLOAD_TIME);
+  setTimeout(()=>clearInterval(t), DOWNLOAD_TIME);
 }
 /* ========================================= */
 
 /* ================= UPLOAD ================= */
-async function uploadTest() {
+async function uploadTest(){
   state.phase = "upload";
   state.upSamples = [];
   state.currentUp = 0;
   render();
 
-  let uploadedBytes = 0;
+  let uploaded = 0;
   const start = performance.now();
-  let lastSampleTime = start;
 
-  // fire-and-forget upload loop
-  const uploadLoop = async () => {
-    while (performance.now() - start < UPLOAD_TIME) {
+  const uploadLoop = async ()=>{
+    while(performance.now()-start < UPLOAD_TIME){
       const data = new Uint8Array(UPLOAD_CHUNK);
       const form = new FormData();
       form.append("file", new Blob([data]));
-
-      await fetch(BASE + "/upload", {
-        method: "POST",
-        body: form
-      });
-
-      uploadedBytes += data.length;
+      try{
+        await fetch(BASE+"/upload",{method:"POST",body:form});
+        uploaded += data.length;
+      }catch{
+        break;
+      }
     }
   };
 
-  // start upload in background
   uploadLoop();
 
-  // sample speed at fixed interval (LIKE DOWNLOAD)
-  const sampler = setInterval(() => {
-    const now = performance.now();
-    const elapsed = (now - start) / 1000;
-
-    if (elapsed <= 0) return;
-
-    const mbps = (uploadedBytes * 8) / elapsed / 1e6;
-
+  const sampler = setInterval(()=>{
+    const sec = (performance.now()-start)/1000;
+    if(sec<=0) return;
+    const mbps = (uploaded*8)/sec/1e6;
     state.currentUp = mbps;
     state.upSamples.push(mbps);
     render();
+  },400);
 
-    lastSampleTime = now;
-  }, 400);
-
-  // stop sampler after upload duration
-  await new Promise(r => setTimeout(r, UPLOAD_TIME));
+  await new Promise(r=>setTimeout(r,UPLOAD_TIME));
   clearInterval(sampler);
 }
-
 /* ========================================= */
 
 /* ================= WEBSOCKET ================= */
-function startWebSocket(){
-  try{
-    const ws=new WebSocket(WS_URL);
-    ws.onmessage=e=>{
-      if(e.data==="ping")ws.send("pong");
-      else{
-        const d=JSON.parse(e.data);
-        ping.textContent=d.ping+" ms";
-        jitter.textContent=d.jitter+" ms";
-      }
-    };
-  }catch{
+function startWebSocket(retry=0){
+  if(retry>3){
     ping.textContent="N/A";
     jitter.textContent="N/A";
+    return;
   }
+  const ws = new WebSocket(WS_URL);
+
+  ws.onmessage = e=>{
+    if(e.data==="ping") ws.send("pong");
+    else{
+      const d = JSON.parse(e.data);
+      ping.textContent = d.ping+" ms";
+      jitter.textContent = d.jitter+" ms";
+    }
+  };
+
+  ws.onerror = ()=>ws.close();
+  ws.onclose = ()=>setTimeout(()=>startWebSocket(retry+1),2000);
 }
 /* ========================================= */
-function clearCanvas(canvas) {
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
 
 /* ================= MAIN ================= */
-async function startTest() {
+async function startTest(){
   btn.disabled = true;
 
-  // ✅ FULL RESET (IMPORTANT)
-  state.phase = "download";
-  state.currentDown = 0;
-  state.currentUp = 0;
-  state.downSamples = [];
-  state.upSamples = [];
-
-  // ✅ CLEAR BOTH GRAPHS
+  state.phase="download";
+  state.currentDown=0;
+  state.currentUp=0;
+  state.downSamples=[];
+  state.upSamples=[];
   clearCanvas(downGraph);
   clearCanvas(upGraph);
-
   render();
 
-  try {
+  try{
+    await fetch(BASE+"/",{cache:"no-store"});
+    await new Promise(r=>setTimeout(r,1500));
+
     startWebSocket();
     startDownload();
-    await new Promise(r => setTimeout(r, DOWNLOAD_TIME));
+    await new Promise(r=>setTimeout(r,DOWNLOAD_TIME));
     await uploadTest();
-    state.phase = "done";
+    state.phase="done";
     render();
-  } finally {
-    btn.disabled = false;
+  }finally{
+    btn.disabled=false;
   }
 }
 
-
-btn.onclick=startTest;
-unitToggle.onchange=render;
+btn.onclick = startTest;
+unitToggle.onchange = render;
 </script>
 
 </body>
 </html>
+
 
